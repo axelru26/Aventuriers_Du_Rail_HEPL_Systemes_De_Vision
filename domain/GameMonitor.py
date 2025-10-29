@@ -35,6 +35,7 @@ class GameMonitor:
         self.camera = None
         self.frame = None
         self.warped_board = None
+        self.open_windows = set()
 
     def run(self):
         """
@@ -49,16 +50,19 @@ class GameMonitor:
             match self.state:
                 case GameState.CALIBRATING_WARP:
                     self._calibrate_warp()
-                    cv2.imshow("Calibrating Warp", self.frame)
+                    self._show_frame("Calibrating Warp", self.frame)
                 case GameState.CALIBRATING_COLORS:
                     self.warped_board = cv2.warpPerspective(self.frame, self.perspective_matrix, BOARD_SIZE)
-                    cv2.imshow("Calibrating Colors", self.warped_board)
+                    self._show_frame("Calibrating Colors", self.warped_board)
                 case _:
                     raise ValueError(f"Unknown state: {self.state}")
 
             key = cv2.waitKey(1) & 0xFF
-            if key == ord('q'):
+            if key == ord('q'):  # press 'q' to quit
                 break
+            elif key == ord('r'):  # Press 'r' to return to warp calibration
+                self.state = GameState.CALIBRATING_WARP
+
         self._cleanup()
 
     # RUN METHODS
@@ -71,12 +75,32 @@ class GameMonitor:
     def _cleanup(self):
         self.camera.release()
         cv2.destroyAllWindows()
+        self.open_windows.clear()
 
     # INITIALIZATION METHODS
     def _initialize_camera(self):
         self.camera = cv2.VideoCapture(self.source)
         if not self.camera.isOpened():
             raise IOError("Could not open camera")
+
+    def _show_frame(self, window_name, frame):
+        """
+        A helper to display a frame in a window.
+        Ensures only this window is open.
+        """
+        windows_to_close = [
+            old_name for old_name in list(self.open_windows) if old_name != window_name
+        ]
+
+        for old_name in windows_to_close:
+            cv2.destroyWindow(old_name)
+            self.open_windows.remove(old_name)
+
+        if window_name not in self.open_windows:
+            cv2.namedWindow(window_name, cv2.WINDOW_NORMAL)
+            cv2.resizeWindow(window_name, BOARD_SIZE[0], BOARD_SIZE[1])
+            self.open_windows.add(window_name)
+        cv2.imshow(window_name, frame)
 
     # WARP CALIBRATION METHODS
     def _calibrate_warp(self):

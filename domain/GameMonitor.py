@@ -17,6 +17,8 @@ class GameState(Enum):
     INITIALIZING = auto()
     CALIBRATING_WARP = auto()
     CALIBRATING_COLORS = auto()
+    DETECTING_TRACKS = auto()
+    DETECTING_TRAINS = auto()
 
 
 class GameMonitor:
@@ -48,7 +50,8 @@ class GameMonitor:
                     self._show_frame("Calibrating Warp", self.frame)
                 case GameState.CALIBRATING_COLORS:
                     self.warped_frame = cv2.warpPerspective(self.frame, self.perspective_matrix, BOARD_SIZE)
-                    self._show_frame("Calibrating Colors", self.warped_frame)
+                    self._show_frame("Calibrating Colors",
+                                     self.warped_frame)  # Use a callback color picker to get HSV values.
                 case _:
                     raise ValueError(f"Unknown state: {self.state}")
 
@@ -78,16 +81,7 @@ class GameMonitor:
         cv2.destroyAllWindows()
         self.current_window_name = None
 
-    # INITIALIZATION METHODS
-    def _initialize_camera(self):
-        """
-        Initializes the camera.
-        """
-        self.camera = cv2.VideoCapture(self.source)
-        if not self.camera.isOpened():
-            raise IOError("Could not open camera")
-
-    def _show_frame(self, window_name, frame):
+    def _show_frame(self, window_name, frame, callback=None):
         """
         A helper to display a frame in a window.
         If the window name changes, it closes the old window and opens a new one.
@@ -97,9 +91,20 @@ class GameMonitor:
                 cv2.destroyWindow(self.current_window_name)
             cv2.namedWindow(window_name, cv2.WINDOW_NORMAL)
             cv2.resizeWindow(window_name, BOARD_SIZE[0], BOARD_SIZE[1])
+            if callback:
+                cv2.setMouseCallback(window_name, callback)
             self.current_window_name = window_name
 
         cv2.imshow(window_name, frame)
+
+    # INITIALIZATION METHODS
+    def _initialize_camera(self):
+        """
+        Initializes the camera.
+        """
+        self.camera = cv2.VideoCapture(self.source)
+        if not self.camera.isOpened():
+            raise IOError("Could not open camera")
 
     # WARP CALIBRATION METHODS
     def _calibrate_warp(self):

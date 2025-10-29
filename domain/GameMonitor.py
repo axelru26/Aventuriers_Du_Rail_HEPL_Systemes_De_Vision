@@ -7,11 +7,6 @@ ARUCO_DICT = cv2.aruco.getPredefinedDictionary(getattr(cv2.aruco, ARUCO_DICT_NAM
 ARUCO_PARAMETERS = cv2.aruco.DetectorParameters()
 ARUCO_VALID_IDS = {0, 1, 2, 3}
 
-# BGR
-BLUE = (255, 0, 0)
-GREEN = (0, 255, 0)
-RED = (0, 0, 255)
-
 BOARD_SIZE = (1200, 800)
 
 
@@ -34,8 +29,8 @@ class GameMonitor:
         self.source = source
         self.camera = None
         self.frame = None
-        self.warped_board = None
-        self.open_windows = set()
+        self.warped_frame = None
+        self.current_window_name = None
 
     def run(self):
         """
@@ -52,8 +47,8 @@ class GameMonitor:
                     self._calibrate_warp()
                     self._show_frame("Calibrating Warp", self.frame)
                 case GameState.CALIBRATING_COLORS:
-                    self.warped_board = cv2.warpPerspective(self.frame, self.perspective_matrix, BOARD_SIZE)
-                    self._show_frame("Calibrating Colors", self.warped_board)
+                    self.warped_frame = cv2.warpPerspective(self.frame, self.perspective_matrix, BOARD_SIZE)
+                    self._show_frame("Calibrating Colors", self.warped_frame)
                 case _:
                     raise ValueError(f"Unknown state: {self.state}")
 
@@ -67,18 +62,27 @@ class GameMonitor:
 
     # RUN METHODS
     def _get_frame(self):
+        """
+        Reads a frame from the camera.
+        """
         ret, frame = self.camera.read()
         if not ret:
             raise IOError("Could not read frame")
         self.frame = frame
 
     def _cleanup(self):
+        """
+        Cleans up the camera and any open windows.
+        """
         self.camera.release()
         cv2.destroyAllWindows()
-        self.open_windows.clear()
+        self.current_window_name = None
 
     # INITIALIZATION METHODS
     def _initialize_camera(self):
+        """
+        Initializes the camera.
+        """
         self.camera = cv2.VideoCapture(self.source)
         if not self.camera.isOpened():
             raise IOError("Could not open camera")
@@ -86,24 +90,22 @@ class GameMonitor:
     def _show_frame(self, window_name, frame):
         """
         A helper to display a frame in a window.
-        Ensures only this window is open.
+        If the window name changes, it closes the old window and opens a new one.
         """
-        windows_to_close = [
-            old_name for old_name in list(self.open_windows) if old_name != window_name
-        ]
-
-        for old_name in windows_to_close:
-            cv2.destroyWindow(old_name)
-            self.open_windows.remove(old_name)
-
-        if window_name not in self.open_windows:
+        if self.current_window_name != window_name:
+            if self.current_window_name:
+                cv2.destroyWindow(self.current_window_name)
             cv2.namedWindow(window_name, cv2.WINDOW_NORMAL)
             cv2.resizeWindow(window_name, BOARD_SIZE[0], BOARD_SIZE[1])
-            self.open_windows.add(window_name)
+            self.current_window_name = window_name
+
         cv2.imshow(window_name, frame)
 
     # WARP CALIBRATION METHODS
     def _calibrate_warp(self):
+        """
+        Handles the warp calibration process.
+        """
         # Initialize or cleanup variables
         self.aruco_ids = None
         self.aruco_corners = None
@@ -112,14 +114,13 @@ class GameMonitor:
         self._detect_aruco()
         if self.aruco_corners is not None and self.aruco_ids is not None:
             cv2.putText(self.frame, f"Found {len(self.aruco_ids)} ArUco markers", (10, 30), cv2.FONT_HERSHEY_SIMPLEX,
-                        0.7, RED, 2)
+                        0.7, (0, 255, 0), 2)
             cv2.aruco.drawDetectedMarkers(self.frame, self.aruco_corners, self.aruco_ids)
             if len(self.aruco_ids) == 4:
                 self._get_perspective_matrix()
                 self.state = GameState.CALIBRATING_COLORS
-
-        else:
-            cv2.putText(self.frame, "No ArUco markers found", (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, RED, 2)
+            return
+        cv2.putText(self.frame, "No ArUco markers found", (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
 
     def _detect_aruco(self):
         """
@@ -154,28 +155,18 @@ class GameMonitor:
         marker_corners_by_id = {}
         for i, corner_data in zip(self.aruco_ids.flatten(), self.aruco_corners):
             marker_corners_by_id[i] = corner_data[0]
-
-        # Define the source points (the uppermost left corner of each ArUco marker).
-        # We assume ARUCO_VALID_IDS = {0, 1, 2, 3} correspond to:
-        # ID 0: Top-Left physical corner of the board
-        # ID 1: Top-Right physical corner of the board
-        # ID 2: Bottom-Right physical corner of the board
-        # ID 3: Bottom-Left physical corner of the board
         src_points = np.float32([
-            marker_corners_by_id[0][0],  # Top-Left marker (ID 0), its top-left corner
-            marker_corners_by_id[1][0],  # Top-Right marker (ID 1), its top-left corner
-            marker_corners_by_id[2][0],  # Bottom-Right marker (ID 2), its top-left corner
-            marker_corners_by_id[3][0]  # Bottom-Left marker (ID 3), its top-left corner
+            marker_corners_by_id[0][0],
+            marker_corners_by_id[1][0],
+            marker_corners_by_id[2][0],
+            marker_corners_by_id[3][0]
         ])
-
-        # Define the destination points (corners of the desired output board size).
         dst_points = np.float32([
             [0, 0],
             [BOARD_SIZE[0] - 1, 0],
             [BOARD_SIZE[0] - 1, BOARD_SIZE[1] - 1],
             [0, BOARD_SIZE[1] - 1]
         ])
-
         self.perspective_matrix = cv2.getPerspectiveTransform(src_points, dst_points)
 
     # COLOR CALIBRATION METHODS

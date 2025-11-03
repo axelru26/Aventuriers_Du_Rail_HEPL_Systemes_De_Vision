@@ -8,6 +8,8 @@ ARUCO_PARAMETERS = cv2.aruco.DetectorParameters()
 ARUCO_VALID_IDS = {0, 1, 2, 3}
 
 BOARD_SIZE = (1200, 800)
+COLORS = ["blue", "green", "red", "yellow", "orange", "pink", "white", "gray", "black"]
+COLOR_SAMPLE_KERNEL = 10
 
 
 class GameState(Enum):
@@ -33,6 +35,8 @@ class GameMonitor:
         self.frame = None
         self.warped_frame = None
         self.current_window_name = None
+        self.color_index = 0
+        self.colors = {}
 
     def run(self):
         """
@@ -50,8 +54,10 @@ class GameMonitor:
                     self._show_frame("Calibrating Warp", self.frame)
                 case GameState.CALIBRATING_COLORS:
                     self.warped_frame = cv2.warpPerspective(self.frame, self.perspective_matrix, BOARD_SIZE)
-                    self._show_frame("Calibrating Colors",
-                                     self.warped_frame)  # Use a callback color picker to get HSV values.
+                    self._calibrate_colors()
+                    self._show_frame("Calibrating Colors", self.warped_frame, callback=self._color_picker_callback)
+                case GameState.DETECTING_TRACKS:
+                    raise NotImplementedError()
                 case _:
                     raise ValueError(f"Unknown state: {self.state}")
 
@@ -60,6 +66,7 @@ class GameMonitor:
                 break
             elif key == ord('r'):  # Press 'r' to return to warp calibration
                 self.state = GameState.CALIBRATING_WARP
+            # TODO: allow to recalibrate color
 
         self._cleanup()
 
@@ -175,3 +182,41 @@ class GameMonitor:
         self.perspective_matrix = cv2.getPerspectiveTransform(src_points, dst_points)
 
     # COLOR CALIBRATION METHODS
+    def _calibrate_colors(self):
+        """
+        Handles the color calibration process.
+        """
+        if self.color_index < len(COLORS):
+            cv2.putText(self.warped_frame, f"Click on a {COLORS[self.color_index]} track", (50, 50),
+                        cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2, cv2.LINE_AA)
+        else:
+            self.state = GameState.DETECTING_TRACKS
+
+    def _color_picker_callback(self, event, x, y, flags, param):
+        """
+        Handles mouse clicks for color picking during calibration.
+        Converts the selected pixel color to HSV and stores it.
+        """
+        # If it still proves unreliable, we can try to make them click several tracks of the same color, and average out.
+        if event == cv2.EVENT_LBUTTONDOWN:
+            if self.color_index >= len(COLORS):
+                print("All colors have been calibrated.")
+                return
+
+            # Define the region of interest (ROI) for color sampling
+            half_size = COLOR_SAMPLE_KERNEL // 2
+            y_start = max(0, y - half_size)
+            y_end = y + half_size
+            x_start = max(0, x - half_size)
+            x_end = x + half_size
+
+            hsv_frame = cv2.cvtColor(self.warped_frame, cv2.COLOR_BGR2HSV)
+            roi = hsv_frame[y_start:y_end, x_start:x_end]
+
+            # Calculate the average color of the ROI and convert to integer values
+            avg_hsv_color = np.uint8(np.mean(roi, axis=(0, 1)))
+
+            current_color_name = COLORS[self.color_index]
+            self.colors[current_color_name] = avg_hsv_color
+            print(f"Calibrated {current_color_name.upper()}: {avg_hsv_color}")
+            self.color_index += 1

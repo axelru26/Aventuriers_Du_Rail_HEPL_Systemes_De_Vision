@@ -67,6 +67,7 @@ class GameMonitor:
                     self.frame = cv2.cvtColor(self.warped_frame, cv2.COLOR_BGR2HSV)
                     mask = cv2.inRange(self.frame, self.colors["orange"]["lower"], self.colors["orange"]["upper"])
                     self.frame = cv2.bitwise_and(self.frame, self.frame, mask=mask)
+                    # TODO : Draw circle on click
                     self._show_frame("Filtering blue", self.frame)
                 case _:
                     raise ValueError(f"Unknown state: {self.state}")

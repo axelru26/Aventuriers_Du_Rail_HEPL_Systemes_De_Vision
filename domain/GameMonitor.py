@@ -9,12 +9,13 @@ ARUCO_VALID_IDS = {0, 1, 2, 3}
 
 BOARD_SIZE = (1200, 800)
 # COLORS = ["blue", "green", "red", "yellow", "orange", "pink", "white", "gray", "black"]
-COLORS = ["yellow"]
+COLORS = ["orange"]
 # Red bad, yellow bad, orange good + points, white is VERY bad, gray VERY bad, black BERY bad
 COLOR_SAMPLE_KERNEL = 10
 
-H_TOLERANCE = 10
-S_V_TOLERANCE = 50
+H_TOLERANCE = 5
+S_TOLERANCE = 100
+V_TOLERANCE = 150
 
 
 class GameState(Enum):
@@ -64,7 +65,7 @@ class GameMonitor:
                     self._show_frame("Calibrating Colors", self.warped_frame, callback=self._color_picker_callback)
                 case GameState.DETECTING_TRACKS:
                     self.frame = cv2.cvtColor(self.warped_frame, cv2.COLOR_BGR2HSV)
-                    mask = cv2.inRange(self.frame, self.colors["yellow"]["lower"], self.colors["yellow"]["upper"])
+                    mask = cv2.inRange(self.frame, self.colors["orange"]["lower"], self.colors["orange"]["upper"])
                     self.frame = cv2.bitwise_and(self.frame, self.frame, mask=mask)
                     self._show_frame("Filtering blue", self.frame)
                 case _:
@@ -229,19 +230,19 @@ class GameMonitor:
             self.samples.append(avg_hsv_color)
             print(f"SAMPLES {self.samples}")
             if len(self.samples) == 8:
-                avg_sample_color = np.uint8(np.mean(self.samples, axis=0))
-                print(f"avg of samples {avg_sample_color}")
+                mean_hsv = np.uint8(np.mean(self.samples, axis=0))
+                print(f"avg of samples {mean_hsv}")
 
                 # Lower values
-                lower_h = np.clip(int(avg_sample_color[0]) - H_TOLERANCE, 0, 179)
-                lower_s = np.clip(int(avg_sample_color[1]) - S_V_TOLERANCE, 0, 255)
-                lower_v = np.clip(int(avg_sample_color[2]) - S_V_TOLERANCE, 0, 255)
+                lower_h = np.clip(int(mean_hsv[0]) - H_TOLERANCE, 0, 179)
+                lower_s = np.clip(int(mean_hsv[1]) - S_TOLERANCE, 0, 255)
+                lower_v = np.clip(int(mean_hsv[2]) - V_TOLERANCE, 0, 255)
                 lower_bound = np.array([lower_h, lower_s, lower_v], np.uint8)
 
                 # Upper values
-                upper_h = np.clip(int(avg_sample_color[0]) + H_TOLERANCE, 0, 179)
-                upper_s = np.clip(int(avg_sample_color[1]) + S_V_TOLERANCE,0, 255)
-                upper_v = np.clip(int(avg_sample_color[2]) + S_V_TOLERANCE,0, 255)
+                upper_h = np.clip(int(mean_hsv[0]) + H_TOLERANCE, 0, 179)
+                upper_s = np.clip(int(mean_hsv[1]) + S_TOLERANCE,0, 255)
+                upper_v = np.clip(int(mean_hsv[2]) + V_TOLERANCE,0, 255)
                 upper_bound = np.array([upper_h, upper_s, upper_v], np.uint8)
 
 

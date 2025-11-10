@@ -9,7 +9,7 @@ ARUCO_VALID_IDS = {0, 1, 2, 3}
 
 BOARD_SIZE = (1200, 800)
 # COLORS = ["blue", "green", "red", "yellow", "orange", "pink", "white", "gray", "black"]
-COLORS = ["red"]
+COLORS = ["yellow"]
 # Red bad, yellow bad, orange good + points, white is VERY bad, gray VERY bad, black BERY bad
 COLOR_SAMPLE_KERNEL = 10
 
@@ -42,6 +42,7 @@ class GameMonitor:
         self.current_window_name = None
         self.color_index = 0
         self.colors = {}
+        self.samples = []
 
     def run(self):
         """
@@ -63,7 +64,7 @@ class GameMonitor:
                     self._show_frame("Calibrating Colors", self.warped_frame, callback=self._color_picker_callback)
                 case GameState.DETECTING_TRACKS:
                     self.frame = cv2.cvtColor(self.warped_frame, cv2.COLOR_BGR2HSV)
-                    mask = cv2.inRange(self.frame, self.colors["red"]["lower"], self.colors["red"]["upper"])
+                    mask = cv2.inRange(self.frame, self.colors["yellow"]["lower"], self.colors["yellow"]["upper"])
                     self.frame = cv2.bitwise_and(self.frame, self.frame, mask=mask)
                     self._show_frame("Filtering blue", self.frame)
                 case _:
@@ -225,24 +226,28 @@ class GameMonitor:
 
             # Calculate the average color of the ROI and convert to integer values
             avg_hsv_color = np.uint8(np.mean(roi, axis=(0, 1)))
+            self.samples.append(avg_hsv_color)
+            print(f"SAMPLES {self.samples}")
+            if len(self.samples) == 8:
+                avg_sample_color = np.uint8(np.mean(self.samples, axis=0))
+                print(f"avg of samples {avg_sample_color}")
 
-            print(f"AVG = {avg_hsv_color}")
+                # Lower values
+                lower_h = np.clip(int(avg_sample_color[0]) - H_TOLERANCE, 0, 179)
+                lower_s = np.clip(int(avg_sample_color[1]) - S_V_TOLERANCE, 0, 255)
+                lower_v = np.clip(int(avg_sample_color[2]) - S_V_TOLERANCE, 0, 255)
+                lower_bound = np.array([lower_h, lower_s, lower_v], np.uint8)
 
-            # Lower values
-            lower_h = np.clip(avg_hsv_color[0] - H_TOLERANCE, 0, 179)
-            lower_s = np.clip(avg_hsv_color[1] - S_V_TOLERANCE, 0, 255)
-            lower_v = np.clip(avg_hsv_color[2] - S_V_TOLERANCE, 0, 255)
-            lower_bound = np.array([lower_h, lower_s, lower_v], np.uint8)
-
-            # Upper values
-            upper_h = np.clip(avg_hsv_color[0] + H_TOLERANCE, 0, 179)
-            upper_s = np.clip(avg_hsv_color[1] + S_V_TOLERANCE, 0, 255)
-            upper_v = np.clip(avg_hsv_color[2] + S_V_TOLERANCE, 0, 255)
-            upper_bound = np.array([upper_h, upper_s, upper_v], np.uint8)
+                # Upper values
+                upper_h = np.clip(int(avg_sample_color[0]) + H_TOLERANCE, 0, 179)
+                upper_s = np.clip(int(avg_sample_color[1]) + S_V_TOLERANCE,0, 255)
+                upper_v = np.clip(int(avg_sample_color[2]) + S_V_TOLERANCE,0, 255)
+                upper_bound = np.array([upper_h, upper_s, upper_v], np.uint8)
 
 
-            current_color_name = COLORS[self.color_index]
-            dict_lower_upper = {"lower": lower_bound, "upper": upper_bound}
-            self.colors[current_color_name] = dict_lower_upper
-            print(f"Lower & Upper {current_color_name} :  {dict_lower_upper}")
-            self.color_index += 1
+                current_color_name = COLORS[self.color_index]
+                dict_lower_upper = {"lower": lower_bound, "upper": upper_bound}
+                self.colors[current_color_name] = dict_lower_upper
+                print(f"Lower & Upper {current_color_name} :  {dict_lower_upper}")
+                self.samples = []
+                self.color_index += 1

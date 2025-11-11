@@ -10,12 +10,10 @@ ARUCO_VALID_IDS = {0, 1, 2, 3}
 BOARD_SIZE = (1200, 800)
 # COLORS = ["blue", "green", "red", "yellow", "orange", "pink", "white", "gray", "black"]
 COLORS = ["orange"]
-# Red bad, yellow bad, orange good + points, white is VERY bad, gray VERY bad, black BERY bad
+# Red bad, yellow bad, orange good + points, white is VERY bad, gray VERY bad, black VERY bad
 COLOR_SAMPLE_KERNEL = 10
 
-H_TOLERANCE = 5
-S_TOLERANCE = 100
-V_TOLERANCE = 150
+TOLERANCE = {"h": 5, "s": 100, "v": 150}
 
 
 class GameState(Enum):
@@ -39,6 +37,7 @@ class GameMonitor:
         self.source = source
         self.camera = None
         self.frame = None
+        self.aruco_detector = cv2.aruco.ArucoDetector(ARUCO_DICT, ARUCO_PARAMETERS)
         self.warped_frame = None
         self.current_window_name = None
         self.color_index = 0
@@ -64,11 +63,9 @@ class GameMonitor:
                     self._calibrate_colors()
                     self._show_frame("Calibrating Colors", self.warped_frame, callback=self._color_picker_callback)
                 case GameState.DETECTING_TRACKS:
-                    self.frame = cv2.cvtColor(self.warped_frame, cv2.COLOR_BGR2HSV)
-                    mask = cv2.inRange(self.frame, self.colors["orange"]["lower"], self.colors["orange"]["upper"])
-                    self.frame = cv2.bitwise_and(self.frame, self.frame, mask=mask)
-                    # TODO : Draw circle on click
-                    self._show_frame("Filtering blue", self.frame)
+                    self.warped_frame = cv2.warpPerspective(self.frame, self.perspective_matrix, BOARD_SIZE)
+                    self._detect_tracks()
+                    self._show_frame("Filtering blue", self.warped_frame)
                 case _:
                     raise ValueError(f"Unknown state: {self.state}")
 
@@ -152,8 +149,7 @@ class GameMonitor:
         Detects ArUco markers in the current frame.
         """
         gray_frame = cv2.cvtColor(self.frame, cv2.COLOR_BGR2GRAY)
-        detector = cv2.aruco.ArucoDetector(ARUCO_DICT, ARUCO_PARAMETERS)
-        corners, ids, rejected = detector.detectMarkers(gray_frame)
+        corners, ids, _ = self.aruco_detector.detectMarkers(gray_frame)
         if ids is not None:
             self._filter_aruco_ids(corners, ids)
 
@@ -202,13 +198,21 @@ class GameMonitor:
         if self.color_index < len(COLORS):
             cv2.putText(self.warped_frame, f"Click on a {COLORS[self.color_index]} track", (50, 50),
                         cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2, cv2.LINE_AA)
+            # TODO : Draw circles where the current samples were taken. We need to change the `sample` variable to also keep track of the clicked coords for this.
         else:
             self.state = GameState.DETECTING_TRACKS
 
-    def _color_picker_callback(self, event, x, y, flags, param):
+    def _color_picker_callback(self, event, x, y, _flags, _param):
         """
-        Handles mouse clicks for color picking during calibration.
-        Converts the selected pixel color to HSV and stores it.
+        Handles mouse clicks for color calibration.
+
+        On each click, it samples a small region of pixels, calculates the
+        average HSV color, and adds it to a list of samples. After collecting
+        a set number of samples (8), it computes the overall average HSV value.
+
+        From this final average, it calculates a lower and upper HSV threshold
+        based on predefined tolerances and stores this color range. It then
+        advances to the next color to be calibrated.
         """
         # If it still proves unreliable, we can try to make them click several tracks of the same color, and average out.
         if event == cv2.EVENT_LBUTTONDOWN:
@@ -235,21 +239,26 @@ class GameMonitor:
                 print(f"avg of samples {mean_hsv}")
 
                 # Lower values
-                lower_h = np.clip(int(mean_hsv[0]) - H_TOLERANCE, 0, 179)
-                lower_s = np.clip(int(mean_hsv[1]) - S_TOLERANCE, 0, 255)
-                lower_v = np.clip(int(mean_hsv[2]) - V_TOLERANCE, 0, 255)
+                lower_h = np.clip(int(mean_hsv[0]) - TOLERANCE["h"], 0, 179)
+                lower_s = np.clip(int(mean_hsv[1]) - TOLERANCE["s"], 0, 255)
+                lower_v = np.clip(int(mean_hsv[2]) - TOLERANCE["v"], 0, 255)
                 lower_bound = np.array([lower_h, lower_s, lower_v], np.uint8)
 
                 # Upper values
-                upper_h = np.clip(int(mean_hsv[0]) + H_TOLERANCE, 0, 179)
-                upper_s = np.clip(int(mean_hsv[1]) + S_TOLERANCE,0, 255)
-                upper_v = np.clip(int(mean_hsv[2]) + V_TOLERANCE,0, 255)
+                upper_h = np.clip(int(mean_hsv[0]) + TOLERANCE["h"], 0, 179)
+                upper_s = np.clip(int(mean_hsv[1]) + TOLERANCE["s"], 0, 255)
+                upper_v = np.clip(int(mean_hsv[2]) + TOLERANCE["v"], 0, 255)
                 upper_bound = np.array([upper_h, upper_s, upper_v], np.uint8)
 
-
                 current_color_name = COLORS[self.color_index]
-                dict_lower_upper = {"lower": lower_bound, "upper": upper_bound}
-                self.colors[current_color_name] = dict_lower_upper
-                print(f"Lower & Upper {current_color_name} :  {dict_lower_upper}")
+                color_range = {"lower": lower_bound, "upper": upper_bound}
+                self.colors[current_color_name] = color_range
+                print(f"{current_color_name.capitalize()} color range :  {color_range}")
                 self.samples = []
                 self.color_index += 1
+
+    # TRACK DETECTION METHODS
+    def _detect_tracks(self):
+        self.warped_frame = cv2.cvtColor(self.warped_frame, cv2.COLOR_BGR2HSV)
+        mask = cv2.inRange(self.warped_frame, self.colors["orange"]["lower"], self.colors["orange"]["upper"])
+        self.warped_frame = cv2.bitwise_and(self.warped_frame, self.warped_frame, mask=mask)
